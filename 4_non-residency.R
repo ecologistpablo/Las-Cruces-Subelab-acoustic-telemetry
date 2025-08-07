@@ -1,3 +1,4 @@
+rm(list=ls())
 pacman::p_load(tidyverse)
 setwd("~/Documents/OWUSS/experiences/Subelab ECIM")
 list.files("Inputs")
@@ -7,10 +8,9 @@ colnames(dat)
 str(dat)
 
 dat1 <- dat %>% 
-  mutate(datetime = with_tz(ymd_hms(datetime, tz = "UTC"), tzone = "Etc/GMT-10"),
-         tag_id = as.character(tag_id)) %>% 
-  select(-receiver_name) %>% 
+  select(-minute, -hour, -transmitter, -receiver) %>% 
   filter(if_all(everything(), ~ !is.na(.))) # remove NAs and their entire row
+
 anyNA(dat1) # needs to be false
 str(dat1)
 # tag id = character
@@ -27,13 +27,13 @@ tic()  # lets time it
 move_base <- dat1 %>%
   arrange(tag_id, datetime) %>% # arrange by ID and time
   group_by(tag_id) %>% # process data by tag ID 
-  mutate(next_location = lead(location), # lead time (lead / lag connects two rows (detections) that have already been arranged by time)
+  mutate(next_location = lead(station_name), # lead time (lead / lag connects two rows (detections) that have already been arranged by time)
          next_time = lead(datetime), # lead time
          next_station_name = lead(station_name), # lead location name, can be changed to receiver
          next_latitude = lead(latitude), # lat 
          next_longitude = lead(longitude)) %>% # lon
   # Define a movement as a change in location
-  filter(!is.na(next_location), location != next_location) %>% # filter movements that go to the same location (my methods but you can remove)
+  #filter(!is.na(next_location), location != next_location) %>% # filter movements that go to the same location (my methods but you can remove)
   mutate(movement_id = row_number()) %>% # movement_id to connect an arrival / departure movement as one in future 
   ungroup() 
 
@@ -49,8 +49,6 @@ toc() # 1.978 seconds for 2.5 million rows, we love vectorised function
 departures <- move_base %>%
   transmute(tag_id, # transmute brings over data, arranges in order, and keeps str as well as renames all in one
             datetime = datetime, # first datetime val in the dataframe
-            sex = sex,
-            location = location,
             station_name = station_name,
             latitude = latitude,
             longitude = longitude,
@@ -61,8 +59,6 @@ departures <- move_base %>%
 arrivals <- move_base %>%
   transmute(tag_id, # transmute brings over data, arranges in order, and keeps str as well as renames all in one
             datetime = next_time,
-            sex = sex,
-            location = next_location,
             station_name = next_station_name,
             latitude = next_latitude,
             longitude = next_longitude,
@@ -74,19 +70,20 @@ dat2 <- bind_rows(departures, arrivals) %>% # departure and arrival dataframes s
   arrange(tag_id, movement_id, movement, datetime)
 
 str(dat2)
-table(dat2$location)
+table(dat2$station_name)
 # dat2 should be double the obs of movebase
 # since all we did was split rows of a movement into two: arrivals and depatures
 
 datxy <- dat2 %>%
-  group_by(location, latitude, longitude) %>%
-  summarise(num_det = n(), .groups = 'drop')
+  group_by(station_name, latitude, longitude) %>%
+  summarise(num_det = n(), .groups = 'drop') %>% 
+  filter(if_all(everything(), ~ !is.na(.))) # remove NAs and their entire row
 
 IMOSxy_sf <- sf::st_as_sf(datxy, coords = c("longitude",
                                             "latitude"), crs = 4326, agr = "constant")
 
-mapview::mapview(IMOSxy_sf, cex = "num_det", zcol = "location", fbg = FALSE)
+mapview::mapview(IMOSxy_sf, cex = "num_det", zcol = "station_name", fbg = FALSE)
 
 
 # save our beautiful work
-write_rds(dat2, "Inputs/250730_step4.rds")
+write_rds(dat2, "Inputs/250807_non-residency_subelab.rds")
