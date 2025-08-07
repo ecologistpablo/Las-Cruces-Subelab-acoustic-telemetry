@@ -30,7 +30,9 @@ residency <- dat %>%
             n_detections = n(), # total number of pings within the resideny event
             duration_days = round(as.numeric(difftime(max(datetime), # num of days 
                                                       min(datetime), units = "days")), 2), .groups = "drop",
-            scientific_name = scientific_name) %>% # bring sex over                  
+            scientific_name = scientific_name,
+            protection = protection,
+            substrate = substrate) %>% # bring sex over                  
   dplyr::filter(n_detections >= min_detections, duration_days >= min_res_period) %>% # filter residency that is less than min days
   arrange(tag_id, start_datetime) # return a clean df 
 
@@ -40,5 +42,5 @@ toc() # 2.165 seconds to process 2.5 million rows
 residency
 table(residency$location)
 # save your beautiful work
-write_rds(residency, "Inputs/250730_residency.rds")
+write_rds(residency, "Inputs/250807_residency_subelab.rds")
 

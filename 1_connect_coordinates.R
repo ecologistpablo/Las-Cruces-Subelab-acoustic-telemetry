@@ -50,7 +50,6 @@ str(dat3)
 
 dat3$tag_id <- str_extract(dat3$transmitter, "\\d{4,5}$") #shorten tag ID strings
 
-
 # plot it -----------------------------------------------------------------
 
 datxy <- dat3 %>%
