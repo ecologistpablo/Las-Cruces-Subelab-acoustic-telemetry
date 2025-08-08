@@ -6,11 +6,11 @@ dat <- read_rds("Inputs/250807_sube1.rds")
 
 # inputs ------------------------------------------------------------------
 
-min_detections <- 1 # minimum detections per day to enter residency
-min_res_period <- 2 # minimum duration threshold in days for 'residency' to occur
+min_detections <- 2 # minimum detections per day to enter residency
+min_res_period <-  # minimum duration threshold in days for 'residency' to occur
 max_gap_secs <- 86400  # 1 day gap allowed between detections (in seconds: 86400 seconds in a day)
 
-60*60*24 # 15 days in seconds
+60*60 # 15 days in seconds
 
 # residency ---------------------------------------------------------------
 

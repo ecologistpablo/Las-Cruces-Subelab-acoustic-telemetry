@@ -1,99 +1,109 @@
+# 08 August 2025 
+  # calculating residency averages across tag and management zone
+    # the plotting seperately
+  # for the Subelab at ECIM in Chile
+# Pablo Fuenzalida
+
 rm(list=ls())
 pacman::p_load(tidyverse)
 setwd("~/Documents/OWUSS/experiences/Subelab ECIM")
 list.files("Inputs")
 dat <- read_rds("Inputs/250807_residency_subelab.rds")
 
-# 1. Expand all residency events into daily rows, extract month and year
+
+# ---- 1. expand each event to one row per day ----
 dat_days <- dat %>%
-  mutate(start_date = as.Date(start_datetime),
-         end_date = as.Date(end_datetime)) %>%
-  rowwise() %>% # push through function at each row 
-  mutate(date = list(seq(start_date, end_date, by = "day"))) %>%
-  ungroup() %>%
-  dplyr::select(tag_id, station_name, date, scientific_name,
-                protection, substrate) %>%
-  unnest(date) 
+  transmute(tag_id,
+            station_name,
+            scientific_name,
+            protection,
+            date = map2(start_datetime, end_datetime,
+                ~ seq.Date(as.Date(.x), as.Date(.y), by = "day"))) %>%
+  unnest(date) %>%
+  mutate(month = factor(month(date), levels = 1:12,
+                        labels = month.abb, ordered = TRUE),
+    year  = year(date))
 
-# choose a block size so format() never allocates more than ~5 million strings at once
-block_size <- 5e6L    
-n <- nrow(dat_days)
-# pre-allocate integer columns
-dat_days$month <- integer(n)
-dat_days$year  <- integer(n)
-# fill in by chunks
-for (i in seq(1L, n, by = block_size)) {
-  j <- min(i + block_size - 1L, n)
-  chunk_dates <- dat_days$date[i:j]
-  dat_days$month[i:j] <- lubridate::month(chunk_dates)
-  dat_days$year[i:j]  <- lubridate::year(chunk_dates)
-}
-
-# 2. For each tag/station_name/month, count days present
+# ---- 2. count days present per tag/station/month ----
 monthly_days <- dat_days %>%
-  group_by(tag_id, protection, station_name, month, year, scientific_name) %>%
-  summarise(n_days_present = n_distinct(date), .groups = "drop")
+  distinct(tag_id, station_name, protection, 
+           scientific_name, month, year, date) %>%
+  count(tag_id, station_name, protection, scientific_name, month, year,
+        name = "n_days_present")
 
-# 3. For each tag/station_name/month, get number of years tag was active
-years_per_tag_month <- monthly_days %>%
-  group_by(tag_id, station_name, month) %>%
-  summarise(n_years = n(), .groups = "drop")   # n() counts years (since year is grouped above)
+# ---- 3. count years active per tag/station/month (distinct years) ----
+years_per_month <- monthly_days %>%
+  distinct(tag_id, station_name, month, year) %>%
+  count(tag_id, station_name, month, name = "n_years")
 
-# 4. Calculate mean days per year per tag/station_name/month
+# ---- 4. merge & compute days_per_year ----
 monthly_days <- monthly_days %>%
-  left_join(years_per_tag_month, by = c("tag_id", "station_name", "month")) %>%
+  left_join(years_per_month,
+            by = c("tag_id","station_name","month")) %>%
   mutate(days_per_year = n_days_present / n_years)
 
-# 5. For each station_name/sex/month, get mean residency index
+# ---- 5. summarize mean ± SD (and SE if wanted) ----
 mean_residency <- monthly_days %>%
   group_by(station_name, protection, scientific_name, month) %>%
   summarise(mean_days_present = mean(days_per_year),
-            sd_days_present = sd(days_per_year),          # Add SD
-            se_days_present = sd(days_per_year) / sqrt(n()), # Add SE if you want
-            .groups = "drop")
+    sd_days_present  = sd(days_per_year),
+    n_tags = n_distinct(tag_id),
+    se_days_present = sd_days_present / sqrt(n_tags),
+    .groups = "drop")
 
-summary(mean_residency$mean_days_present)
+# ---- 6. count unique tags per station/species/month ----
+unique_tags <- dat_days %>%
+  distinct(tag_id, station_name, protection, scientific_name, month) %>%
+  count(station_name, protection, scientific_name, month,
+        name = "unique_tags")
 
+# collapse to one row per protection × species × month
+mean_residency_prot <- monthly_days %>%
+  group_by(protection, scientific_name, month) %>%
+  summarise(mean_days_present = mean(days_per_year),
+    sd_days_present = sd(days_per_year),
+    n_tags = n_distinct(tag_id),
+    se_days_present = sd_days_present / sqrt(n_tags),
+    .groups = "drop") 
 
-# unique tags -------------------------------------------------------------
-
-unique_tags_monthly <- dat_days %>%
-  group_by(station_name, protection, month, scientific_name) %>%
-  summarise(unique_tags = n_distinct(tag_id), .groups = "drop")
-
-# plot --------------------------------------------------------------------
-
-# residency index plot
-a <- ggplot(mean_residency, aes(x = month, y = mean_days_present,
-                                colour = scientific_name,
-                                 group = scientific_name)) +
-  geom_pointrange(aes(ymin = mean_days_present - sd_days_present, 
+# ---- 7. plot mean ± SD ----
+# one point per species×month×protection + a line connecting months
+p1 <- ggplot(mean_residency_prot,
+             aes(x = month, y = mean_days_present,
+                 colour = scientific_name, group = scientific_name)) +
+  geom_line(size = 0.7) +
+  geom_pointrange(aes(ymin = mean_days_present - sd_days_present,
                       ymax = mean_days_present + sd_days_present),
-                  position = position_dodge(width = 0.5)) +
-  facet_wrap(~protection, ncol = 1) +
-  #scale_colour_manual(values = c("F" = "firebrick4", "M" = "deepskyblue4")) +
-  labs( x = "Month", y = "Mean Days Present per Sex (± SD)") +
+                  linewidth = 0.3) +
+  facet_grid(scientific_name~protection) +
+  scale_x_discrete(drop = FALSE, limits = month.abb) +
+  labs(x = "Month", y = "Mean Days Present ± SD", colour = "Species") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_blank())
-a
-# unique tags plot
-b <- ggplot(unique_tags_monthly, aes(x = month, y = unique_tags, fill = scientific_name)) +
-  geom_bar(stat = "identity", position = "stack") +
-  facet_wrap(~station_name, scales = "fixed", ncol = 1) +
-  #scale_fill_manual(values = c("F" = "firebrick4", "M" = "deepskyblue4"),
-  #                  name = "Sex") +
-  labs(x = "Month", y = "Number of Unique Tags Detected") +
+        panel.grid.major.x = element_blank()) +
+  scale_colour_viridis_d(direction =-1)
+p1
+
+# ---- 8. plot unique tags ----
+p2 <- ggplot(unique_tags,
+             aes(x = month, y = unique_tags,
+                 fill = scientific_name)) +
+  geom_col(position = "stack") +
+  facet_wrap(~protection, ncol = 1, scales = "free_y") +
+  labs(x = "Month", y = "Unique Tags Detected",
+       fill = "Species") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_blank())
+        panel.grid.major.x = element_blank()) +
+  scale_fill_viridis_d()
+p2
 
-z <- ggarrange(a,b, common.legend = T, legend = "right")
-z
+# ---- 9. combine & save ----
+combined <- ggpubr::ggarrange(p1, p2,
+                      ncol = 2,
+                      common.legend = TRUE,
+                      legend = "right")
+combined
 
-ggsave(path = "Outputs/", "250807_residency_stationame.pdf",
-       plot = z, width = 7, height = 9) #in inches because gg weird
-
-
+ggsave("Outputs/250808_residency_sp.pdf",
+       plot = combined, width = 12, height = 9)
