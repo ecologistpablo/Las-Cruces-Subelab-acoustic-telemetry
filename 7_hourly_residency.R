@@ -1,17 +1,19 @@
 
 rm(list=ls())
-pacman::p_load(tidyverse)
+pacman::p_load(tidyverse, purrr, furrr)
 setwd("~/Documents/OWUSS/experiences/Subelab ECIM")
 list.files("Inputs")
 dat <- read_rds("Inputs/250807_sube1.rds")
 
 # params ---------------------------------------------------------------
+
 min_detections_per_hour <- 2   # detections required in each hour bin
 min_res_hours <- 1   # minimum event duration (hours)
 max_gap_secs <- 3600  # 1 hour timeout between sequential detections
 
 # hourly residency -----------------------------------------------------
 
+summary(dat1$datetime)
 # 1) Identify continuous events by 1h timeout
 dat_events <- dat %>%
   arrange(tag_id, protection, datetime) %>%
@@ -49,8 +51,7 @@ residency
 # keeps only hour bins that met the >= 2 detections criterion
 residency_hours <- det_hourly %>%
   filter(dets_in_hour >= min_detections_per_hour) %>%
-  mutate(
-    hour_of_day = lubridate::hour(hour_bin)) %>%  # 0..23 for polar plots
+  mutate(hour_of_day = lubridate::hour(hour_bin)) %>%  # 0..23 for polar plots
   select(tag_id, scientific_name, protection,
          event_id, hour_bin, hour_of_day, dets_in_hour)
 
